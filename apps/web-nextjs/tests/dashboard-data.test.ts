@@ -6,11 +6,7 @@ describe('dashboard data', () => {
     expect(dashboardData.kpis.length).toBeGreaterThanOrEqual(4);
   });
 
-  it('contains onboarding pipeline rows', () => {
-    expect(dashboardData.onboardingPipeline.length).toBeGreaterThan(0);
-  });
-
-  it('contains payroll queue updates', () => {
-    expect(dashboardData.payrollQueue.length).toBeGreaterThan(0);
+  it('contains recent activities', () => {
+    expect(dashboardData.activities.length).toBeGreaterThan(0);
   });
 });

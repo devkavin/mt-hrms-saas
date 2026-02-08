@@ -1,15 +1,11 @@
 import React from 'react';
-import './globals.css';
-
-export const metadata = {
-  title: 'PulseHRMS',
-  description: 'World-class HRMS SaaS platform'
-};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body style={{ margin: 0, fontFamily: 'Inter, system-ui, sans-serif', background: '#f5f7fb' }}>
+        {children}
+      </body>
     </html>
   );
 }

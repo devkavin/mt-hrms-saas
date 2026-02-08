@@ -1,11 +1,10 @@
 import React from 'react';
 
-export function KpiCard({ label, value, trend }: { label: string; value: string; trend: string }) {
+export function KpiCard({ label, value }: { label: string; value: string }) {
   return (
-    <article className="card">
-      <div className="muted" style={{ fontSize: 14 }}>{label}</div>
-      <div className="kpi-value" style={{ marginTop: 8 }}>{value}</div>
-      <div style={{ marginTop: 6, color: '#2563eb', fontSize: 13 }}>{trend}</div>
+    <article style={{ background: '#fff', borderRadius: 16, padding: 20, boxShadow: '0 8px 28px rgba(15, 23, 42, 0.08)' }}>
+      <div style={{ color: '#64748b', fontSize: 14 }}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, marginTop: 8 }}>{value}</div>
     </article>
   );
 }

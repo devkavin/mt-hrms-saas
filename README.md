@@ -3,9 +3,8 @@
 This repository contains a production-ready blueprint for a **multi-tenant HRMS SaaS** with:
 
 - Laravel 12 microservices (API Gateway, Employee Onboarding, Payroll, User Management, Reporting)
-- Next.js 15 App Router frontend with a premium HRMS UI/UX
+- Next.js 15 App Router frontend with world-class UX patterns
 - Stripe subscription billing
-- Enterprise SSO stubs (Okta, Azure AD, Google Workspace, SAML)
 - PostgreSQL (SQL), Redis cache/queues
 - Dockerized local/prod setup tailored for **Hetzner CAX21**
 
@@ -13,19 +12,19 @@ This repository contains a production-ready blueprint for a **multi-tenant HRMS 
 
 | Service | Purpose | Port |
 |---|---|---:|
-| `api-gateway` | Authentication, tenant routing, Stripe billing + SSO orchestration | 8000 |
+| `api-gateway` | Authentication, tenant routing, Stripe billing orchestration | 8000 |
 | `employee-onboarding` | Candidate -> employee onboarding workflows | 8001 |
 | `payroll` | Payroll runs, tax rules, disbursement prep | 8002 |
-| `user-management` | RBAC, invite flow, SSO directory policies/sync | 8003 |
+| `user-management` | RBAC, invite flow, SSO/SAML-ready stubs | 8003 |
 | `reporting` | Analytics, compliance exports, KPI dashboards | 8004 |
-| `web-nextjs` | Modern HRMS UI for admins/managers/employees | 3000 |
+| `web-nextjs` | Modern client UI for admins/managers/employees | 3000 |
 
 ## Architecture highlights
 
 - **Multi-tenancy:** header-based (`X-Tenant-ID`) with DB-level tenant scoping pattern.
 - **Billing:** Stripe Checkout + Customer Portal flow via API Gateway.
-- **Identity:** SSO provider discovery, tenant config, and login URL generation stubs.
 - **Data:** PostgreSQL primary store, Redis for cache/session/queue.
+- **Observability:** health endpoints + consistent JSON API contracts.
 - **Scalability:** independent services, API gateway composition, Redis-backed async jobs.
 
 ## Quick start

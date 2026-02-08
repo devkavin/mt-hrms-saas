@@ -4,7 +4,7 @@
 
 - Login as Company Admin.
 - Confirm KPI widgets display workforce, onboarding, payroll, and alerts.
-- Confirm onboarding pipeline and payroll activity panels are visible.
+- Confirm activity feed shows latest events.
 
 ## 2. Onboarding flow
 
@@ -32,13 +32,6 @@
 
 - Click Upgrade Plan.
 - Confirm redirect to Stripe checkout link.
-
-## 7. SSO
-
-- Open Configure SSO.
-- Select provider (Okta/Azure AD/Google Workspace/SAML).
-- Save settings and confirm SSO status is enabled.
-- Trigger directory sync and confirm queued response.
 
 ## UAT exit criteria
 

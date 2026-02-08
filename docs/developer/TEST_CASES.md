@@ -55,10 +55,3 @@
 1. Sustained load: 300 RPS across read endpoints at p95 < 300ms.
 2. Failover: Redis restart should not crash API containers.
 3. Backup/restore validates tenant-scoped data recovery.
-
-## I. SSO and identity
-
-1. SSO providers endpoint returns supported provider list.
-2. SSO configure endpoint enables SSO for a tenant and returns provider metadata.
-3. SSO login URL endpoint returns tenant-scoped redirect URL.
-4. Directory sync endpoint queues and reports sync status.

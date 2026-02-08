@@ -6,14 +6,13 @@
 - API-first Laravel 12 backend split into business microservices.
 - Next.js frontend optimized for speed and premium UX.
 - Stripe for subscription lifecycle (checkout, billing portal, renewals).
-- Enterprise SSO (SAML/OIDC-ready) to support centralized identity.
 
 ## 2) Microservice boundaries
 
-- **API Gateway:** auth, tenancy resolution, Stripe billing orchestration, SSO broker endpoints.
+- **API Gateway:** auth, tenancy resolution, billing orchestration.
 - **Employee Onboarding:** workflows, documents, pre-joining tasks.
 - **Payroll:** run orchestration, deductions, approvals.
-- **User Management:** RBAC, invitations, SSO directory sync + policy controls.
+- **User Management:** RBAC, invitations, profile + policy controls.
 - **Reporting:** strategic HR analytics + CSV/PDF exports.
 
 ## 3) Data and caching
@@ -33,5 +32,4 @@
 
 - Tenant context required via token + `X-Tenant-ID`.
 - Service-to-service calls should use signed JWT service tokens.
-- SSO policy defaults include JIT provisioning + MFA requirement stubs.
 - SOC2/GDPR readiness path: audit logs, data retention controls, DSR flows.
