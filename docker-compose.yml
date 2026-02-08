@@ -1,0 +1,93 @@
+version: '3.9'
+
+x-laravel-service: &laravel-service
+  image: php:8.3-cli
+  working_dir: /var/www/html
+  volumes:
+    - ./services:/var/www/html/services
+  environment:
+    APP_ENV: local
+    APP_DEBUG: 'true'
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_DATABASE: hrms
+    DB_USERNAME: hrms
+    DB_PASSWORD: hrms
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+  depends_on:
+    - postgres
+    - redis
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - '80:80'
+    volumes:
+      - ./infrastructure/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web-nextjs
+      - api-gateway
+
+  web-nextjs:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./apps/web-nextjs:/app
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+
+  api-gateway:
+    <<: *laravel-service
+    command: sh -c "php -S 0.0.0.0:8000 -t services/api-gateway/public"
+    ports:
+      - '8000:8000'
+
+  employee-onboarding:
+    <<: *laravel-service
+    command: sh -c "php -S 0.0.0.0:8001 -t services/employee-onboarding/public"
+    ports:
+      - '8001:8001'
+
+  payroll:
+    <<: *laravel-service
+    command: sh -c "php -S 0.0.0.0:8002 -t services/payroll/public"
+    ports:
+      - '8002:8002'
+
+  user-management:
+    <<: *laravel-service
+    command: sh -c "php -S 0.0.0.0:8003 -t services/user-management/public"
+    ports:
+      - '8003:8003'
+
+  reporting:
+    <<: *laravel-service
+    command: sh -c "php -S 0.0.0.0:8004 -t services/reporting/public"
+    ports:
+      - '8004:8004'
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hrms
+      POSTGRES_USER: hrms
+      POSTGRES_PASSWORD: hrms
+    ports:
+      - '5432:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+
+volumes:
+  pg_data:
