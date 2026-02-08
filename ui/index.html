@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MT HRMS SaaS</title>
+    <script type="module" src="/main.js"></script>
+    <style>
+      :root {font-family: Inter, system-ui, sans-serif; color-scheme: light dark;}
+      body{margin:0;background:#0b1020;color:#ecf0ff}
+      .layout{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+      .sidebar{background:#121a33;padding:24px}
+      .logo{font-weight:700;font-size:20px;margin-bottom:20px}
+      .nav a{display:block;color:#c7d2fe;padding:10px 12px;border-radius:10px;text-decoration:none;margin-bottom:8px}
+      .nav a:hover{background:#1f2a4d}
+      .main{padding:24px}
+      .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+      .card{background:#121a33;border:1px solid #26345f;border-radius:16px;padding:16px}
+      .big{grid-column:span 2}
+      .table{width:100%;border-collapse:collapse}
+      .table th,.table td{padding:10px;border-bottom:1px solid #2d3d6e;text-align:left}
+      .pill{display:inline-block;background:#1d4ed8;color:#dbeafe;padding:4px 8px;border-radius:999px;font-size:12px}
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="logo">MT HRMS</div>
+        <div class="nav">
+          <a href="#">Dashboard</a>
+          <a href="#">Onboarding</a>
+          <a href="#">Payroll</a>
+          <a href="#">Users & Roles</a>
+          <a href="#">Reports</a>
+          <a href="#">Billing (Stripe)</a>
+        </div>
+      </aside>
+      <main class="main">
+        <h1>Executive Dashboard</h1>
+        <p>World-class UX starter focused on decision-ready HR intelligence.</p>
+        <section class="grid">
+          <article class="card"><h3>Headcount</h3><h2>246</h2><span class="pill">+5 this month</span></article>
+          <article class="card"><h3>Open Onboarding</h3><h2>18</h2><span class="pill">2 delayed</span></article>
+          <article class="card"><h3>Payroll Status</h3><h2>Ready</h2><span class="pill">Cutoff in 2 days</span></article>
+          <article class="card"><h3>MRR</h3><h2>$12,440</h2><span class="pill">Stripe synced</span></article>
+          <article class="card big">
+            <h3>Upcoming Onboarding</h3>
+            <table class="table">
+              <thead><tr><th>Name</th><th>Department</th><th>Start date</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td>Jane Okoro</td><td>Engineering</td><td>2026-03-01</td><td>Docs pending</td></tr>
+                <tr><td>Mark Liu</td><td>Finance</td><td>2026-03-03</td><td>Asset assignment</td></tr>
+              </tbody>
+            </table>
+          </article>
+          <article class="card big">
+            <h3>Payroll Overview</h3>
+            <table class="table">
+              <thead><tr><th>Cycle</th><th>Gross</th><th>Deductions</th><th>Net</th></tr></thead>
+              <tbody>
+                <tr><td>Feb 2026</td><td>$312,320</td><td>$84,110</td><td>$228,210</td></tr>
+                <tr><td>Jan 2026</td><td>$305,890</td><td>$82,900</td><td>$222,990</td></tr>
+              </tbody>
+            </table>
+          </article>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
