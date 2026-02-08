@@ -6,6 +6,8 @@ x-laravel-service: &laravel-service
   environment:
     APP_ENV: local
     APP_DEBUG: 'true'
+    APP_TOKEN_SECRET: super-secret-local-dev-key
+    CORS_ALLOW_ORIGIN: '*'
     DB_CONNECTION: pgsql
     DB_HOST: postgres
     DB_PORT: 5432
@@ -39,34 +41,39 @@ services:
       - ./apps/web-nextjs:/app
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8000/api
+      NEXT_PUBLIC_USER_MGMT_URL: http://localhost:8003/api
+      NEXT_PUBLIC_ONBOARDING_URL: http://localhost:8001/api
+      NEXT_PUBLIC_PAYROLL_URL: http://localhost:8002/api
+      NEXT_PUBLIC_REPORTING_URL: http://localhost:8004/api
 
   api-gateway:
     <<: *laravel-service
-    command: sh -c "php -S 0.0.0.0:8000 -t services/api-gateway/public"
+    command: sh -c "php -S 0.0.0.0:8000 -t services/api-gateway/public services/api-gateway/router.php"
     ports:
       - '8000:8000'
 
   employee-onboarding:
     <<: *laravel-service
-    command: sh -c "php -S 0.0.0.0:8001 -t services/employee-onboarding/public"
+    command: sh -c "php -S 0.0.0.0:8001 -t services/employee-onboarding/public services/employee-onboarding/router.php"
     ports:
       - '8001:8001'
 
   payroll:
     <<: *laravel-service
-    command: sh -c "php -S 0.0.0.0:8002 -t services/payroll/public"
+    command: sh -c "php -S 0.0.0.0:8002 -t services/payroll/public services/payroll/router.php"
     ports:
       - '8002:8002'
 
   user-management:
     <<: *laravel-service
-    command: sh -c "php -S 0.0.0.0:8003 -t services/user-management/public"
+    command: sh -c "php -S 0.0.0.0:8003 -t services/user-management/public services/user-management/router.php"
     ports:
       - '8003:8003'
 
   reporting:
     <<: *laravel-service
-    command: sh -c "php -S 0.0.0.0:8004 -t services/reporting/public"
+    command: sh -c "php -S 0.0.0.0:8004 -t services/reporting/public services/reporting/router.php"
     ports:
       - '8004:8004'
 
