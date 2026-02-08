@@ -23,7 +23,7 @@ $nowIso = static fn (): string => gmdate('c');
 $router->get('/', static fn (): JsonResponse => JsonResponse::make([
     'service' => 'employee-onboarding',
     'status' => 'ok',
-    'version' => '2.0.0',
+    'version' => '2.1.0',
 ]));
 
 $router->get('/api/health', static fn (): JsonResponse => JsonResponse::make([
@@ -31,6 +31,20 @@ $router->get('/api/health', static fn (): JsonResponse => JsonResponse::make([
     'status' => 'ok',
     'timestamp' => gmdate('c'),
 ]));
+
+$router->get('/api/views/overview', static function (Request $request) use ($tokens, $workflows): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+    TenantGuard::requireUser($request, $tokens, $tenantId);
+
+    $records = $workflows->list(static fn (array $record): bool => ($record['tenant_id'] ?? '') === $tenantId);
+
+    return JsonResponse::make([
+        'service' => 'employee-onboarding',
+        'tenant_id' => $tenantId,
+        'workflow_count' => count($records),
+        'pending' => count(array_filter($records, static fn (array $r): bool => ($r['status'] ?? '') !== 'completed')),
+    ]);
+});
 
 $router->get('/api/onboarding/workflows', static function (Request $request) use ($tokens, $workflows): JsonResponse {
     $tenantId = TenantGuard::requireTenant($request);
@@ -54,20 +68,37 @@ $router->post('/api/onboarding/workflows', static function (Request $request) us
         throw new HttpException(422, 'employee_id is required.');
     }
 
+    $stepsInput = $request->input('steps', []);
+    $steps = [];
+    if (is_array($stepsInput) && count($stepsInput) > 0) {
+        foreach ($stepsInput as $stepName) {
+            $cleanStep = strtolower(trim((string) $stepName));
+            if ($cleanStep !== '') {
+                $steps[] = ['step' => $cleanStep, 'status' => 'pending'];
+            }
+        }
+    }
+
+    if (count($steps) === 0) {
+        $steps = [
+            ['step' => 'collect_documents', 'status' => 'pending'],
+            ['step' => 'sign_contract', 'status' => 'pending'],
+            ['step' => 'it_setup', 'status' => 'pending'],
+            ['step' => 'orientation', 'status' => 'pending'],
+        ];
+    }
+
     $timestamp = $nowIso();
     $workflowId = IdGenerator::next('onb');
-    $steps = [
-        ['step' => 'collect_documents', 'status' => 'pending'],
-        ['step' => 'sign_contract', 'status' => 'pending'],
-        ['step' => 'it_setup', 'status' => 'pending'],
-        ['step' => 'orientation', 'status' => 'pending'],
-    ];
 
     $workflow = [
         'workflow_id' => $workflowId,
         'tenant_id' => $tenantId,
         'employee_id' => $employeeId,
         'status' => 'pending_documents',
+        'priority' => strtolower(trim((string) $request->input('priority', 'normal'))),
+        'start_date' => (string) $request->input('start_date', gmdate('Y-m-d')),
+        'manager_email' => strtolower(trim((string) $request->input('manager_email', ''))),
         'steps' => $steps,
         'created_by' => (string) ($claims['sub'] ?? ''),
         'created_at' => $timestamp,
@@ -77,6 +108,26 @@ $router->post('/api/onboarding/workflows', static function (Request $request) us
     $workflows->set($workflowId, $workflow);
 
     return JsonResponse::make($workflow, 201);
+});
+
+$router->patch('/api/onboarding/workflows/{workflow}', static function (Request $request, array $params) use ($tokens, $workflows, $nowIso): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+    $claims = TenantGuard::requireUser($request, $tokens, $tenantId);
+    TenantGuard::requireRole($claims, ['admin', 'super-admin', 'hr-admin', 'manager']);
+
+    $workflowId = (string) ($params['workflow'] ?? '');
+    $workflow = $workflows->find($workflowId);
+    if ($workflow === null || ($workflow['tenant_id'] ?? '') !== $tenantId) {
+        throw new HttpException(404, 'Workflow not found.');
+    }
+
+    $workflow['status'] = trim((string) $request->input('status', (string) ($workflow['status'] ?? 'in_progress')));
+    $workflow['priority'] = trim((string) $request->input('priority', (string) ($workflow['priority'] ?? 'normal')));
+    $workflow['manager_email'] = strtolower(trim((string) $request->input('manager_email', (string) ($workflow['manager_email'] ?? ''))));
+    $workflow['updated_at'] = $nowIso();
+    $workflows->set($workflowId, $workflow);
+
+    return JsonResponse::make($workflow);
 });
 
 $router->post('/api/onboarding/workflows/{workflow}/steps/{step}/complete', static function (Request $request, array $params) use (

@@ -24,30 +24,12 @@ $exports = new JsonStore('reporting_exports');
 
 $nowIso = static fn (): string => gmdate('c');
 
-$router->get('/', static fn (): JsonResponse => JsonResponse::make([
-    'service' => 'reporting',
-    'status' => 'ok',
-    'version' => '2.0.0',
-]));
-
-$router->get('/api/health', static fn (): JsonResponse => JsonResponse::make([
-    'service' => 'reporting',
-    'status' => 'ok',
-    'timestamp' => gmdate('c'),
-]));
-
-$router->get('/api/reports/workforce-kpis', static function (Request $request) use ($tokens, $users, $workflows, $payrollRuns): JsonResponse {
-    $tenantId = TenantGuard::requireTenant($request);
-    TenantGuard::requireUser($request, $tokens, $tenantId);
-
+$buildMetrics = static function (string $tenantId) use ($users, $workflows, $payrollRuns): array {
     $tenantUsers = $users->list(static fn (array $record): bool => (
         ($record['tenant_id'] ?? '') === $tenantId
         && in_array((string) ($record['status'] ?? ''), ['active', 'invited'], true)
     ));
-    $headcount = count($tenantUsers);
-    if ($headcount === 0) {
-        $headcount = 1;
-    }
+    $headcount = max(count($tenantUsers), 1);
 
     $tenantWorkflows = $workflows->list(static fn (array $record): bool => ($record['tenant_id'] ?? '') === $tenantId);
     $pendingOnboarding = count(array_filter(
@@ -63,7 +45,7 @@ $router->get('/api/reports/workforce-kpis', static function (Request $request) u
     $timeToHire = (int) max(10, 25 - min(10, floor($headcount / 20)));
     $openComplianceAlerts = (int) max(0, ceil($pendingOnboarding / 3));
 
-    return JsonResponse::make([
+    return [
         'tenant_id' => $tenantId,
         'headcount' => $headcount,
         'attrition_rate' => $attritionRate,
@@ -77,27 +59,62 @@ $router->get('/api/reports/workforce-kpis', static function (Request $request) u
             ['label' => 'Monthly Payroll', 'value' => '$' . number_format($monthlyPayroll, 2)],
             ['label' => 'Open Compliance Alerts', 'value' => number_format($openComplianceAlerts)],
         ],
+    ];
+};
+
+$router->get('/', static fn (): JsonResponse => JsonResponse::make([
+    'service' => 'reporting',
+    'status' => 'ok',
+    'version' => '2.1.0',
+]));
+
+$router->get('/api/health', static fn (): JsonResponse => JsonResponse::make([
+    'service' => 'reporting',
+    'status' => 'ok',
+    'timestamp' => gmdate('c'),
+]));
+
+$router->get('/api/views/overview', static function (Request $request) use ($tokens, $buildMetrics): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+    TenantGuard::requireUser($request, $tokens, $tenantId);
+
+    return JsonResponse::make([
+        'service' => 'reporting',
+        'summary' => $buildMetrics($tenantId),
     ]);
 });
 
-$router->post('/api/reports/export', static function (Request $request) use ($tokens, $exports, $nowIso): JsonResponse {
+$router->get('/api/reports/workforce-kpis', static function (Request $request) use ($tokens, $buildMetrics): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+    TenantGuard::requireUser($request, $tokens, $tenantId);
+
+    return JsonResponse::make($buildMetrics($tenantId));
+});
+
+$router->post('/api/reports/export', static function (Request $request) use ($tokens, $exports, $buildMetrics, $nowIso): JsonResponse {
     $tenantId = TenantGuard::requireTenant($request);
     $claims = TenantGuard::requireUser($request, $tokens, $tenantId);
     TenantGuard::requireRole($claims, ['admin', 'super-admin', 'finance-admin', 'hr-admin', 'manager']);
 
     $format = strtolower(trim((string) $request->input('format', 'csv')));
-    if (!in_array($format, ['csv', 'pdf'], true)) {
-        throw new HttpException(422, 'format must be csv or pdf.');
+    if (!in_array($format, ['csv', 'pdf', 'json'], true)) {
+        throw new HttpException(422, 'format must be csv, pdf, or json.');
     }
 
     $timestamp = $nowIso();
+    $metrics = $buildMetrics($tenantId);
     $exportId = IdGenerator::next('rpt');
     $record = [
         'export_id' => $exportId,
         'tenant_id' => $tenantId,
         'format' => $format,
-        'status' => 'queued',
-        'download_url' => 'https://downloads.mock.hrms.local/' . rawurlencode($exportId) . '.' . $format,
+        'status' => 'completed',
+        'download_url' => '/api/reports/exports/' . rawurlencode($exportId) . '/download',
+        'filters' => [
+            'requested_at' => $timestamp,
+            'include_kpis' => true,
+        ],
+        'report_payload' => $metrics,
         'expires_at' => gmdate('c', strtotime('+24 hours')),
         'created_by' => (string) ($claims['sub'] ?? ''),
         'created_at' => $timestamp,
@@ -105,7 +122,7 @@ $router->post('/api/reports/export', static function (Request $request) use ($to
     ];
     $exports->set($exportId, $record);
 
-    return JsonResponse::make($record, 202);
+    return JsonResponse::make($record, 201);
 });
 
 $router->get('/api/reports/exports', static function (Request $request) use ($tokens, $exports): JsonResponse {
@@ -118,6 +135,24 @@ $router->get('/api/reports/exports', static function (Request $request) use ($to
         'tenant_id' => $tenantId,
         'exports' => $records,
         'count' => count($records),
+    ]);
+});
+
+$router->get('/api/reports/exports/{exportId}/download', static function (Request $request, array $params) use ($tokens, $exports): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+    TenantGuard::requireUser($request, $tokens, $tenantId);
+
+    $exportId = (string) ($params['exportId'] ?? '');
+    $record = $exports->find($exportId);
+    if ($record === null || ($record['tenant_id'] ?? '') !== $tenantId) {
+        throw new HttpException(404, 'Export not found.');
+    }
+
+    return JsonResponse::make([
+        'export_id' => $exportId,
+        'format' => $record['format'] ?? 'json',
+        'filename' => 'workforce-report-' . gmdate('Ymd') . '.' . ($record['format'] ?? 'json'),
+        'content' => $record['report_payload'] ?? [],
     ]);
 });
 
