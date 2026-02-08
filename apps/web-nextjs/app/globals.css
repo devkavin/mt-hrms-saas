@@ -206,6 +206,9 @@ p {
   padding: 8px 10px;
   color: #2d3f51;
   font-size: 14px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 
 .app-nav-item.active {
@@ -445,4 +448,23 @@ p {
   .auth-root {
     padding: 14px;
   }
+}
+
+.auth-mode-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.active-chip {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.linkish {
+  margin-left: 8px;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 700;
 }

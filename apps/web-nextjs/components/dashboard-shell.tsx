@@ -7,38 +7,11 @@ import { buildKpiCards, defaultActivities, WorkforceKpiResponse } from '../lib/d
 import { AppSession, clearSession, readSession } from '../lib/session';
 import { KpiCard } from './kpi-card';
 
-type UserRecord = {
-  user_id: string;
-  email: string;
-  role: string;
-  status: string;
-};
-
-type WorkflowRecord = {
-  workflow_id: string;
-  employee_id: string;
-  status: string;
-};
-
-type PayrollRunRecord = {
-  run_id: string;
-  period: string;
-  status: string;
-  net_total: number;
-};
-
-type ExportRecord = {
-  export_id: string;
-  format: string;
-  status: string;
-  expires_at: string;
-};
-
-type SubscriptionRecord = {
-  plan?: string;
-  status?: string;
-  provider?: string;
-};
+type UserRecord = { user_id: string; email: string; role: string; status: string };
+type WorkflowRecord = { workflow_id: string; employee_id: string; status: string };
+type PayrollRunRecord = { run_id: string; period: string; status: string; net_total: number };
+type ExportRecord = { export_id: string; format: string; status: string; expires_at: string; download_url?: string };
+type SubscriptionRecord = { plan?: string; status?: string; provider?: string };
 
 type DashboardPayload = {
   users: UserRecord[];
@@ -47,27 +20,6 @@ type DashboardPayload = {
   exports: ExportRecord[];
   metrics: WorkforceKpiResponse;
   subscription: SubscriptionRecord;
-};
-
-type UserListResponse = {
-  users: UserRecord[];
-};
-
-type WorkflowListResponse = {
-  workflows: WorkflowRecord[];
-};
-
-type PayrollRunListResponse = {
-  runs: PayrollRunRecord[];
-};
-
-type ExportListResponse = {
-  exports: ExportRecord[];
-};
-
-type BillingCheckoutResponse = {
-  checkout_url: string;
-  plan: string;
 };
 
 const defaultMetrics: WorkforceKpiResponse = {
@@ -84,26 +36,12 @@ const currentPeriod = (): string => {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const formatTime = (): string =>
-  new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date());
+const formatTime = (): string => new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit' }).format(new Date());
+const formatCurrency = (value: number): string => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value);
+const mapError = (error: unknown): string => (error instanceof Error ? error.message : 'Unexpected request failure.');
 
-const formatCurrency = (value: number): string =>
-  new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 2,
-  }).format(value);
-
-const mapError = (error: unknown): string => {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return 'Unexpected request failure.';
-};
+const navItems = ['Dashboard', 'User Access', 'Onboarding', 'Payroll', 'Reporting', 'Billing'] as const;
+type NavItem = (typeof navItems)[number];
 
 export function DashboardShell() {
   const router = useRouter();
@@ -113,78 +51,46 @@ export function DashboardShell() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activities, setActivities] = useState<string[]>(defaultActivities);
+  const [activeView, setActiveView] = useState<NavItem>('Dashboard');
 
   const [inviteEmail, setInviteEmail] = useState('manager@acme-enterprise.com');
   const [inviteRole, setInviteRole] = useState('manager');
   const [employeeId, setEmployeeId] = useState('emp-1001');
   const [payrollPeriod, setPayrollPeriod] = useState(currentPeriod());
   const [exportFormat, setExportFormat] = useState('csv');
+  const [templateTaxRate, setTemplateTaxRate] = useState('0.16');
+  const [templateBenefitsRate, setTemplateBenefitsRate] = useState('0.07');
 
   const recordActivity = (message: string): void => {
     const line = `[${formatTime()}] ${message}`;
     setActivities((existing) => [line, ...existing].slice(0, 8));
   };
 
-  const handleAuthError = (error: unknown): void => {
-    if (error instanceof ApiError && error.status === 401) {
+  const handleAuthError = (err: unknown): void => {
+    if (err instanceof ApiError && err.status === 401) {
       clearSession();
       router.replace('/');
       return;
     }
-
-    setError(mapError(error));
+    setError(mapError(err));
   };
 
   const loadDashboard = async (activeSession: AppSession, silent = false): Promise<void> => {
-    if (!silent) {
-      setLoading(true);
-    }
-
+    if (!silent) setLoading(true);
     try {
-      await apiRequest('gateway', '/auth/session', {
-        tenantId: activeSession.tenantId,
-        token: activeSession.token,
-      });
-
-      const [usersResponse, workflowsResponse, payrollResponse, metricsResponse, exportsResponse, subscriptionResponse] =
-        await Promise.all([
-          apiRequest<UserListResponse>('userManagement', '/users', {
-            tenantId: activeSession.tenantId,
-            token: activeSession.token,
-          }),
-          apiRequest<WorkflowListResponse>('onboarding', '/onboarding/workflows', {
-            tenantId: activeSession.tenantId,
-            token: activeSession.token,
-          }),
-          apiRequest<PayrollRunListResponse>('payroll', '/payroll/runs', {
-            tenantId: activeSession.tenantId,
-            token: activeSession.token,
-          }),
-          apiRequest<WorkforceKpiResponse>('reporting', '/reports/workforce-kpis', {
-            tenantId: activeSession.tenantId,
-            token: activeSession.token,
-          }),
-          apiRequest<ExportListResponse>('reporting', '/reports/exports', {
-            tenantId: activeSession.tenantId,
-            token: activeSession.token,
-          }),
-          apiRequest<SubscriptionRecord>('gateway', '/billing/subscription', {
-            tenantId: activeSession.tenantId,
-            token: activeSession.token,
-          }),
-        ]);
-
-      setDashboard({
-        users: usersResponse.users ?? [],
-        workflows: workflowsResponse.workflows ?? [],
-        payrollRuns: payrollResponse.runs ?? [],
-        exports: exportsResponse.exports ?? [],
-        metrics: metricsResponse,
-        subscription: subscriptionResponse,
-      });
+      await apiRequest('gateway', '/auth/session', { tenantId: activeSession.tenantId, token: activeSession.token });
+      const [users, workflows, payrollRuns, metrics, exports, subscription] = await Promise.all([
+        apiRequest<{ users: UserRecord[] }>('userManagement', '/users', { tenantId: activeSession.tenantId, token: activeSession.token }),
+        apiRequest<{ workflows: WorkflowRecord[] }>('onboarding', '/onboarding/workflows', { tenantId: activeSession.tenantId, token: activeSession.token }),
+        apiRequest<{ runs: PayrollRunRecord[] }>('payroll', '/payroll/runs', { tenantId: activeSession.tenantId, token: activeSession.token }),
+        apiRequest<WorkforceKpiResponse>('reporting', '/reports/workforce-kpis', { tenantId: activeSession.tenantId, token: activeSession.token }),
+        apiRequest<{ exports: ExportRecord[] }>('reporting', '/reports/exports', { tenantId: activeSession.tenantId, token: activeSession.token }),
+        apiRequest<SubscriptionRecord>('gateway', '/billing/subscription', { tenantId: activeSession.tenantId, token: activeSession.token }),
+      ]);
+      setDashboard({ users: users.users ?? [], workflows: workflows.workflows ?? [], payrollRuns: payrollRuns.runs ?? [], exports: exports.exports ?? [], metrics, subscription });
       setError(null);
-    } catch (error) {
-      handleAuthError(error);
+    } catch (err) {
+      handleAuthError(err);
     } finally {
       setLoading(false);
     }
@@ -192,160 +98,95 @@ export function DashboardShell() {
 
   useEffect(() => {
     const activeSession = readSession();
-    if (!activeSession) {
-      router.replace('/');
-      return;
-    }
-
+    if (!activeSession) return router.replace('/');
     setSession(activeSession);
     void loadDashboard(activeSession);
   }, [router]);
 
   const performAction = async (actionName: string, run: () => Promise<void>, successMessage: string): Promise<void> => {
-    if (!session) {
-      return;
-    }
-
+    if (!session) return;
     setError(null);
     setActionBusy(actionName);
     try {
       await run();
       recordActivity(successMessage);
       await loadDashboard(session, true);
-    } catch (error) {
-      handleAuthError(error);
+    } catch (err) {
+      handleAuthError(err);
     } finally {
       setActionBusy(null);
     }
   };
 
-  const onInvite = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+  const onInvite = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!session) {
-      return;
-    }
-
-    await performAction(
-      'invite',
-      async () => {
-        await apiRequest('userManagement', '/users/invite', {
-          method: 'POST',
-          tenantId: session.tenantId,
-          token: session.token,
-          body: { email: inviteEmail, role: inviteRole },
-        });
-        setInviteEmail('');
-      },
-      `Invitation sent to ${inviteEmail}.`
-    );
+    if (!session) return;
+    await performAction('invite', async () => {
+      await apiRequest('userManagement', '/users/invite', { method: 'POST', tenantId: session.tenantId, token: session.token, body: { email: inviteEmail, role: inviteRole } });
+      setInviteEmail('');
+    }, `Invitation sent to ${inviteEmail}.`);
   };
 
-  const onDirectorySync = async (): Promise<void> => {
-    if (!session) {
-      return;
-    }
-
-    await performAction(
-      'sync',
-      async () => {
-        await apiRequest('userManagement', '/sso/directory-sync', {
-          method: 'POST',
-          tenantId: session.tenantId,
-          token: session.token,
-          body: { provider: 'okta' },
-        });
-      },
-      'Directory sync job queued from IdP.'
-    );
+  const onCreateWorkflow = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!session) return;
+    await performAction('workflow', async () => {
+      await apiRequest('onboarding', '/onboarding/workflows', {
+        method: 'POST', tenantId: session.tenantId, token: session.token,
+        body: { employee_id: employeeId, priority: 'high', steps: ['collect_documents', 'it_setup', 'orientation', 'security_training'] },
+      });
+      setEmployeeId('');
+    }, `Onboarding workflow created for ${employeeId}.`);
   };
 
-  const onCreateWorkflow = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+  const onRunPayroll = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!session) {
-      return;
-    }
-
-    await performAction(
-      'workflow',
-      async () => {
-        await apiRequest('onboarding', '/onboarding/workflows', {
-          method: 'POST',
-          tenantId: session.tenantId,
-          token: session.token,
-          body: { employee_id: employeeId },
-        });
-        setEmployeeId('');
-      },
-      `Onboarding workflow created for ${employeeId}.`
-    );
+    if (!session) return;
+    await performAction('payroll', async () => {
+      await apiRequest('payroll', '/payroll/runs', { method: 'POST', tenantId: session.tenantId, token: session.token, body: { period: payrollPeriod } });
+    }, `Payroll run submitted for ${payrollPeriod}.`);
   };
 
-  const onRunPayroll = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (!session) {
-      return;
-    }
-
-    await performAction(
-      'payroll',
-      async () => {
-        await apiRequest('payroll', '/payroll/runs', {
-          method: 'POST',
-          tenantId: session.tenantId,
-          token: session.token,
-          body: { period: payrollPeriod },
-        });
-      },
-      `Payroll run submitted for ${payrollPeriod}.`
-    );
+  const onCreateTemplate = async (): Promise<void> => {
+    if (!session) return;
+    await performAction('template', async () => {
+      await apiRequest('payroll', '/payroll/templates', {
+        method: 'POST', tenantId: session.tenantId, token: session.token,
+        body: { name: 'Custom Template', tax_rate: Number(templateTaxRate), benefits_rate: Number(templateBenefitsRate) },
+      });
+    }, 'Payroll template saved.');
   };
 
-  const onExportReport = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+  const onExportReport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!session) {
-      return;
-    }
+    if (!session) return;
+    await performAction('export', async () => {
+      await apiRequest('reporting', '/reports/export', { method: 'POST', tenantId: session.tenantId, token: session.token, body: { format: exportFormat } });
+    }, `Workforce report generated (${exportFormat.toUpperCase()}).`);
+  };
 
-    await performAction(
-      'export',
-      async () => {
-        await apiRequest('reporting', '/reports/export', {
-          method: 'POST',
-          tenantId: session.tenantId,
-          token: session.token,
-          body: { format: exportFormat },
-        });
-      },
-      `Workforce report export queued (${exportFormat.toUpperCase()}).`
-    );
+  const onDownloadReport = async (exportId: string): Promise<void> => {
+    if (!session) return;
+    await performAction('download', async () => {
+      const data = await apiRequest<{ filename: string; content: unknown }>('reporting', `/reports/exports/${exportId}/download`, { tenantId: session.tenantId, token: session.token });
+      if (typeof window !== 'undefined') {
+        const blob = new Blob([JSON.stringify(data.content, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = data.filename;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+    }, `Downloaded report ${exportId}.`);
   };
 
   const onUpgradePlan = async (): Promise<void> => {
-    if (!session) {
-      return;
-    }
-
-    await performAction(
-      'upgrade',
-      async () => {
-        const response = await apiRequest<BillingCheckoutResponse>('gateway', '/billing/checkout-session', {
-          method: 'POST',
-          tenantId: session.tenantId,
-          token: session.token,
-          body: { plan: 'enterprise' },
-        });
-
-        if (typeof window !== 'undefined') {
-          window.open(response.checkout_url, '_blank', 'noopener,noreferrer');
-        }
-      },
-      'Stripe checkout session generated for Enterprise plan.'
-    );
-  };
-
-  const onSignOut = (): void => {
-    clearSession();
-    router.replace('/');
+    if (!session) return;
+    await performAction('upgrade', async () => {
+      const response = await apiRequest<{ checkout_url: string }>('gateway', '/billing/checkout-session', { method: 'POST', tenantId: session.tenantId, token: session.token, body: { plan: 'enterprise' } });
+      window.open(response.checkout_url, '_blank', 'noopener,noreferrer');
+    }, 'Stripe checkout session generated for Enterprise plan.');
   };
 
   const cards = useMemo(() => buildKpiCards(dashboard?.metrics ?? defaultMetrics), [dashboard]);
@@ -355,16 +196,11 @@ export function DashboardShell() {
       <aside className="app-sidebar surface">
         <p className="eyebrow">Enterprise Workspace</p>
         <h2>PulseHRMS</h2>
-        <p className="muted-text sidebar-copy">
-          Tenant: <strong>{session?.tenantId ?? '-'}</strong>
-        </p>
+        <p className="muted-text sidebar-copy">Tenant: <strong>{session?.tenantId ?? '-'}</strong></p>
         <nav className="app-nav">
-          <span className="app-nav-item active">Dashboard</span>
-          <span className="app-nav-item">User Access</span>
-          <span className="app-nav-item">Onboarding</span>
-          <span className="app-nav-item">Payroll</span>
-          <span className="app-nav-item">Reporting</span>
-          <span className="app-nav-item">Billing</span>
+          {navItems.map((item) => (
+            <button key={item} className={`app-nav-item ${activeView === item ? 'active' : ''}`} onClick={() => setActiveView(item)}>{item}</button>
+          ))}
         </nav>
       </aside>
 
@@ -373,130 +209,28 @@ export function DashboardShell() {
           <div>
             <p className="eyebrow">Authenticated via SSO</p>
             <h1>HR Command Center</h1>
-            <p className="muted-text">
-              {session?.user.email} ({session?.user.role}){dashboard?.subscription.plan ? ` • Plan ${dashboard.subscription.plan}` : ''}
-            </p>
+            <p className="muted-text">{session?.user.email} ({session?.user.role}){dashboard?.subscription.plan ? ` • Plan ${dashboard.subscription.plan}` : ''}</p>
           </div>
-          <div className="header-actions">
-            <button className="ghost-btn" onClick={() => void onDirectorySync()} disabled={actionBusy !== null}>
-              Sync Directory
-            </button>
-            <button className="ghost-btn" onClick={onSignOut}>
-              Sign out
-            </button>
-          </div>
+          <div className="header-actions"><button className="ghost-btn" onClick={() => { clearSession(); router.replace('/'); }}>Sign out</button></div>
         </header>
 
         {error ? <div className="banner-error">{error}</div> : null}
 
-        {loading || !dashboard ? (
-          <section className="surface module-card loading-card">Loading tenant workspace...</section>
-        ) : (
+        {loading || !dashboard ? <section className="surface module-card loading-card">Loading tenant workspace...</section> : (
           <>
-            <section className="kpi-grid">
-              {cards.map((card) => (
-                <KpiCard key={card.label} label={card.label} value={card.value} hint={card.hint} tone={card.tone} />
-              ))}
-            </section>
+            {(activeView === 'Dashboard' || activeView === 'Reporting') && <section className="kpi-grid">{cards.map((c) => <KpiCard key={c.label} {...c} />)}</section>}
 
             <section className="module-grid">
-              <article className="module-card surface">
-                <h3>User Access</h3>
-                <p className="muted-text">Invite users and assign secure roles.</p>
-                <form className="inline-form" onSubmit={onInvite}>
-                  <input value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder="user@company.com" required />
-                  <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value)}>
-                    <option value="employee">employee</option>
-                    <option value="manager">manager</option>
-                    <option value="hr-admin">hr-admin</option>
-                    <option value="finance-admin">finance-admin</option>
-                  </select>
-                  <button className="primary-btn" type="submit" disabled={actionBusy !== null}>
-                    {actionBusy === 'invite' ? 'Sending...' : 'Invite'}
-                  </button>
-                </form>
-                <div className="list-block">
-                  {dashboard.users.slice(0, 4).map((user) => (
-                    <p key={user.user_id}>
-                      {user.email} <span className="pill">{user.role}</span>
-                    </p>
-                  ))}
-                  {dashboard.users.length === 0 ? <p className="muted-text">No users found yet.</p> : null}
-                </div>
-              </article>
+              {(activeView === 'Dashboard' || activeView === 'User Access') && <article className="module-card surface"><h3>User Access</h3><form className="inline-form" onSubmit={onInvite}><input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required /><select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)}><option value="employee">employee</option><option value="manager">manager</option><option value="hr-admin">hr-admin</option><option value="finance-admin">finance-admin</option></select><button className="primary-btn" type="submit" disabled={actionBusy !== null}>Invite</button></form><div className="list-block">{dashboard.users.slice(0, 4).map((u) => <p key={u.user_id}>{u.email} <span className="pill">{u.role}</span></p>)}</div></article>}
 
-              <article className="module-card surface">
-                <h3>Onboarding</h3>
-                <p className="muted-text">Create and track onboarding workflows.</p>
-                <form className="inline-form" onSubmit={onCreateWorkflow}>
-                  <input value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} placeholder="employee id" required />
-                  <button className="primary-btn" type="submit" disabled={actionBusy !== null}>
-                    {actionBusy === 'workflow' ? 'Creating...' : 'New Workflow'}
-                  </button>
-                </form>
-                <div className="list-block">
-                  {dashboard.workflows.slice(0, 4).map((workflow) => (
-                    <p key={workflow.workflow_id}>
-                      {workflow.employee_id} <span className="pill">{workflow.status}</span>
-                    </p>
-                  ))}
-                  {dashboard.workflows.length === 0 ? <p className="muted-text">No workflows yet.</p> : null}
-                </div>
-              </article>
+              {(activeView === 'Dashboard' || activeView === 'Onboarding') && <article className="module-card surface"><h3>Onboarding</h3><form className="inline-form" onSubmit={onCreateWorkflow}><input value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required /><button className="primary-btn" type="submit" disabled={actionBusy !== null}>New Workflow</button></form><div className="list-block">{dashboard.workflows.slice(0, 4).map((w) => <p key={w.workflow_id}>{w.employee_id} <span className="pill">{w.status}</span></p>)}</div></article>}
 
-              <article className="module-card surface">
-                <h3>Payroll</h3>
-                <p className="muted-text">Run payroll with period-level lock protection.</p>
-                <form className="inline-form" onSubmit={onRunPayroll}>
-                  <input value={payrollPeriod} onChange={(event) => setPayrollPeriod(event.target.value)} placeholder="YYYY-MM" required />
-                  <button className="primary-btn" type="submit" disabled={actionBusy !== null}>
-                    {actionBusy === 'payroll' ? 'Running...' : 'Run Payroll'}
-                  </button>
-                </form>
-                <div className="list-block">
-                  {dashboard.payrollRuns.slice(0, 4).map((run) => (
-                    <p key={run.run_id}>
-                      {run.period} <span className="pill">{run.status}</span> {formatCurrency(run.net_total)}
-                    </p>
-                  ))}
-                  {dashboard.payrollRuns.length === 0 ? <p className="muted-text">No payroll runs yet.</p> : null}
-                </div>
-              </article>
+              {(activeView === 'Dashboard' || activeView === 'Payroll') && <article className="module-card surface"><h3>Payroll</h3><form className="inline-form" onSubmit={onRunPayroll}><input value={payrollPeriod} onChange={(e) => setPayrollPeriod(e.target.value)} required /><button className="primary-btn" type="submit" disabled={actionBusy !== null}>Run Payroll</button></form><div className="inline-form"><input value={templateTaxRate} onChange={(e) => setTemplateTaxRate(e.target.value)} placeholder="Tax rate" /><input value={templateBenefitsRate} onChange={(e) => setTemplateBenefitsRate(e.target.value)} placeholder="Benefits rate" /><button className="ghost-btn" type="button" onClick={() => void onCreateTemplate()}>Save Template</button></div><div className="list-block">{dashboard.payrollRuns.slice(0, 4).map((r) => <p key={r.run_id}>{r.period} <span className="pill">{r.status}</span> {formatCurrency(r.net_total)}</p>)}</div></article>}
 
-              <article className="module-card surface">
-                <h3>Reporting & Billing</h3>
-                <p className="muted-text">Queue exports and manage plan upgrades.</p>
-                <form className="inline-form" onSubmit={onExportReport}>
-                  <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value)}>
-                    <option value="csv">csv</option>
-                    <option value="pdf">pdf</option>
-                  </select>
-                  <button className="primary-btn" type="submit" disabled={actionBusy !== null}>
-                    {actionBusy === 'export' ? 'Queueing...' : 'Export'}
-                  </button>
-                </form>
-                <button className="ghost-btn full-width" onClick={() => void onUpgradePlan()} disabled={actionBusy !== null}>
-                  {actionBusy === 'upgrade' ? 'Creating Checkout...' : 'Upgrade to Enterprise'}
-                </button>
-                <div className="list-block">
-                  {dashboard.exports.slice(0, 3).map((record) => (
-                    <p key={record.export_id}>
-                      {record.format.toUpperCase()} <span className="pill">{record.status}</span> exp {record.expires_at.slice(0, 10)}
-                    </p>
-                  ))}
-                  {dashboard.exports.length === 0 ? <p className="muted-text">No exports queued yet.</p> : null}
-                </div>
-              </article>
+              {(activeView === 'Dashboard' || activeView === 'Reporting' || activeView === 'Billing') && <article className="module-card surface"><h3>Reporting & Billing</h3><form className="inline-form" onSubmit={onExportReport}><select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}><option value="csv">csv</option><option value="pdf">pdf</option><option value="json">json</option></select><button className="primary-btn" type="submit" disabled={actionBusy !== null}>Generate Report</button></form><button className="ghost-btn full-width" onClick={() => void onUpgradePlan()} disabled={actionBusy !== null}>Upgrade to Enterprise</button><div className="list-block">{dashboard.exports.slice(0, 3).map((record) => <p key={record.export_id}>{record.format.toUpperCase()} <span className="pill">{record.status}</span> <button className="linkish" onClick={() => void onDownloadReport(record.export_id)}>Download</button></p>)}</div></article>}
             </section>
 
-            <section className="module-card surface activity-card">
-              <h3>Recent Activity</h3>
-              <div className="list-block">
-                {activities.map((item) => (
-                  <p key={item}>{item}</p>
-                ))}
-              </div>
-            </section>
+            <section className="module-card surface activity-card"><h3>Recent Activity</h3><div className="list-block">{activities.map((item) => <p key={item}>{item}</p>)}</div></section>
           </>
         )}
       </section>

@@ -18,6 +18,7 @@ $router = new Router();
 $tokens = new AuthTokenService();
 
 $tenants = new JsonStore('gateway_tenants');
+$tenantAccounts = new JsonStore('gateway_tenant_accounts');
 $ssoConfigs = new JsonStore('gateway_sso_configs');
 $ssoStates = new JsonStore('gateway_sso_states');
 $subscriptions = new JsonStore('gateway_subscriptions');
@@ -26,32 +27,33 @@ $nowIso = static fn (): string => gmdate('c');
 $allowedPlans = ['starter', 'growth', 'enterprise'];
 $supportedProviders = ['okta', 'azure-ad', 'google-workspace', 'saml-custom'];
 
-$ensureTenant = static function (string $tenantId) use ($tenants, $nowIso): array {
+$requireTenant = static function (string $tenantId) use ($tenants): array {
     $tenant = $tenants->find($tenantId);
-    if ($tenant !== null) {
-        return $tenant;
+    if ($tenant === null) {
+        throw new HttpException(404, 'Tenant not found. Please register the tenant first.');
     }
 
-    $timestamp = $nowIso();
-    $tenant = [
-        'tenant_id' => $tenantId,
-        'name' => strtoupper($tenantId) . ' HR',
-        'slug' => $tenantId,
-        'domain' => $tenantId . '.example.com',
-        'status' => 'active',
-        'created_at' => $timestamp,
-        'updated_at' => $timestamp,
-    ];
-    $tenants->set($tenantId, $tenant);
+    if (($tenant['status'] ?? 'active') !== 'active') {
+        throw new HttpException(403, 'Tenant is not active.');
+    }
 
     return $tenant;
+};
+
+$requireTenantAccount = static function (string $tenantId) use ($tenantAccounts): array {
+    $record = $tenantAccounts->find($tenantId);
+    if ($record === null) {
+        throw new HttpException(404, 'Tenant account not found. Please register first.');
+    }
+
+    return $record;
 };
 
 $router->get('/', static fn (): JsonResponse => JsonResponse::make([
     'service' => 'api-gateway',
     'status' => 'ok',
-    'version' => '2.0.0',
-    'description' => 'Enterprise multi-tenant gateway with SSO login and billing orchestration.',
+    'version' => '2.1.0',
+    'description' => 'Enterprise multi-tenant gateway with tenant registration, SSO login and billing orchestration.',
 ]));
 
 $router->get('/api/health', static fn (): JsonResponse => JsonResponse::make([
@@ -70,6 +72,66 @@ $providerPayload = static function () use ($supportedProviders): array {
 
 $router->get('/api/auth/sso/providers', static fn (): JsonResponse => JsonResponse::make($providerPayload()));
 $router->get('/api/sso/providers', static fn (): JsonResponse => JsonResponse::make($providerPayload()));
+
+$router->post('/api/tenants/register', static function (Request $request) use ($allowedPlans, $tenants, $tenantAccounts, $nowIso): JsonResponse {
+    $name = trim((string) $request->input('name', ''));
+    $slug = strtolower(trim((string) $request->input('slug', '')));
+    $adminEmail = strtolower(trim((string) $request->input('admin_email', '')));
+    $password = (string) $request->input('password', '');
+
+    if ($name === '' || $slug === '' || $adminEmail === '' || $password === '') {
+        throw new HttpException(422, 'name, slug, admin_email and password are required.');
+    }
+
+    if (!filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+        throw new HttpException(422, 'admin_email must be a valid email.');
+    }
+
+    if (strlen($password) < 8) {
+        throw new HttpException(422, 'password must be at least 8 characters.');
+    }
+
+    if (preg_match('/^[a-z0-9][a-z0-9-]{1,62}$/', $slug) !== 1) {
+        throw new HttpException(422, 'Tenant slug format is invalid.');
+    }
+
+    if ($tenants->find($slug) !== null || $tenantAccounts->find($slug) !== null) {
+        throw new HttpException(409, 'A tenant with this slug already exists.');
+    }
+
+    $plan = strtolower((string) $request->input('plan', 'starter'));
+    if (!in_array($plan, $allowedPlans, true)) {
+        throw new HttpException(422, 'Plan must be one of: ' . implode(', ', $allowedPlans) . '.');
+    }
+
+    $timestamp = $nowIso();
+    $tenant = [
+        'tenant_id' => $slug,
+        'name' => $name,
+        'slug' => $slug,
+        'domain' => strtolower((string) $request->input('domain', $slug . '.example.com')),
+        'status' => 'active',
+        'plan' => $plan,
+        'created_at' => $timestamp,
+        'updated_at' => $timestamp,
+    ];
+
+    $account = [
+        'tenant_id' => $slug,
+        'admin_email' => $adminEmail,
+        'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+        'created_at' => $timestamp,
+        'updated_at' => $timestamp,
+    ];
+
+    $tenants->set($slug, $tenant);
+    $tenantAccounts->set($slug, $account);
+
+    return JsonResponse::make([
+        'tenant' => $tenant,
+        'registered' => true,
+    ], 201);
+});
 
 $router->post('/api/tenants', static function (Request $request) use ($allowedPlans, $tenants, $nowIso): JsonResponse {
     $name = trim((string) $request->input('name', ''));
@@ -108,24 +170,41 @@ $router->post('/api/tenants', static function (Request $request) use ($allowedPl
     return JsonResponse::make($tenant, 201);
 });
 
-$router->get('/api/tenants/current', static function (Request $request) use ($tenants): JsonResponse {
-    $tenantId = TenantGuard::requireTenant($request);
-    $tenant = $tenants->find($tenantId);
-    if ($tenant === null) {
-        throw new HttpException(404, 'Tenant not found.');
+$router->post('/api/auth/password/verify', static function (Request $request) use ($requireTenant, $requireTenantAccount): JsonResponse {
+    $tenantId = strtolower(trim((string) $request->input('tenant_id', $request->header('X-Tenant-ID', ''))));
+    $password = (string) $request->input('password', '');
+    if ($tenantId === '' || $password === '') {
+        throw new HttpException(422, 'tenant_id and password are required.');
     }
 
-    return JsonResponse::make($tenant);
+    $tenant = $requireTenant($tenantId);
+    $account = $requireTenantAccount($tenantId);
+
+    if (!password_verify($password, (string) ($account['password_hash'] ?? ''))) {
+        throw new HttpException(401, 'Invalid tenant credentials.');
+    }
+
+    return JsonResponse::make([
+        'tenant_id' => $tenantId,
+        'tenant_name' => $tenant['name'] ?? $tenantId,
+        'authenticated' => true,
+    ]);
+});
+
+$router->get('/api/tenants/current', static function (Request $request) use ($requireTenant): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+
+    return JsonResponse::make($requireTenant($tenantId));
 });
 
 $configureSso = static function (Request $request) use (
-    $ensureTenant,
+    $requireTenant,
     $nowIso,
     $ssoConfigs,
     $supportedProviders
 ): JsonResponse {
     $tenantId = TenantGuard::requireTenant($request);
-    $ensureTenant($tenantId);
+    $requireTenant($tenantId);
 
     $provider = strtolower((string) $request->input('provider', 'saml-custom'));
     if (!in_array($provider, $supportedProviders, true)) {
@@ -158,14 +237,14 @@ $router->post('/api/auth/sso/configure', $configureSso);
 $router->post('/api/sso/configure', $configureSso);
 
 $router->post('/api/auth/sso/start', static function (Request $request) use (
-    $ensureTenant,
+    $requireTenant,
     $nowIso,
     $ssoConfigs,
     $ssoStates,
     $supportedProviders
 ): JsonResponse {
     $tenantId = TenantGuard::requireTenant($request);
-    $ensureTenant($tenantId);
+    $requireTenant($tenantId);
 
     $email = strtolower(trim((string) $request->input('email', '')));
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -174,16 +253,7 @@ $router->post('/api/auth/sso/start', static function (Request $request) use (
 
     $configuration = $ssoConfigs->find($tenantId);
     if ($configuration === null) {
-        $configuration = [
-            'tenant_id' => $tenantId,
-            'provider' => 'saml-custom',
-            'sso_enabled' => true,
-            'jit_provisioning' => true,
-            'mfa_required' => true,
-            'created_at' => $nowIso(),
-            'updated_at' => $nowIso(),
-        ];
-        $ssoConfigs->set($tenantId, $configuration);
+        throw new HttpException(409, 'SSO is not configured for this tenant.');
     }
 
     if (($configuration['sso_enabled'] ?? false) !== true) {
@@ -217,12 +287,12 @@ $router->post('/api/auth/sso/start', static function (Request $request) use (
 });
 
 $router->post('/api/auth/sso/callback', static function (Request $request) use (
-    $ensureTenant,
+    $requireTenant,
     $ssoStates,
     $tokens
 ): JsonResponse {
     $tenantId = TenantGuard::requireTenant($request);
-    $tenant = $ensureTenant($tenantId);
+    $tenant = $requireTenant($tenantId);
 
     $state = trim((string) $request->input('state', ''));
     if ($state === '') {
@@ -274,35 +344,6 @@ $router->post('/api/auth/sso/callback', static function (Request $request) use (
     ]);
 });
 
-$router->get('/api/sso/login-url', static function (Request $request) use (
-    $nowIso,
-    $ssoStates,
-    $supportedProviders
-): JsonResponse {
-    $tenantId = TenantGuard::requireTenant($request);
-    $provider = strtolower((string) $request->input('provider', 'saml-custom'));
-    if (!in_array($provider, $supportedProviders, true)) {
-        throw new HttpException(422, 'Unsupported provider.');
-    }
-
-    $state = IdGenerator::next('sso_state');
-    $timestamp = $nowIso();
-    $ssoStates->set($state, [
-        'state' => $state,
-        'tenant_id' => $tenantId,
-        'email' => strtolower((string) $request->input('email', 'user@' . $tenantId . '.com')),
-        'provider' => $provider,
-        'expires_at' => time() + 600,
-        'created_at' => $timestamp,
-        'updated_at' => $timestamp,
-    ]);
-
-    return JsonResponse::make([
-        'tenant_id' => $tenantId,
-        'login_url' => 'https://sso.mock.' . $provider . '.local/authorize?state=' . urlencode($state),
-    ]);
-});
-
 $router->get('/api/auth/session', static function (Request $request) use ($tokens): JsonResponse {
     $tenantId = TenantGuard::requireTenant($request);
     $claims = TenantGuard::requireUser($request, $tokens, $tenantId);
@@ -317,6 +358,17 @@ $router->get('/api/auth/session', static function (Request $request) use ($token
             'name' => (string) ($claims['name'] ?? ''),
         ],
         'expires_at' => (int) ($claims['exp'] ?? 0),
+    ]);
+});
+
+$router->get('/api/views/overview', static function (Request $request) use ($tokens, $tenants, $subscriptions): JsonResponse {
+    $tenantId = TenantGuard::requireTenant($request);
+    TenantGuard::requireUser($request, $tokens, $tenantId);
+
+    return JsonResponse::make([
+        'service' => 'api-gateway',
+        'tenant' => $tenants->find($tenantId),
+        'subscription' => $subscriptions->find($tenantId) ?? ['status' => 'none', 'plan' => 'starter'],
     ]);
 });
 
